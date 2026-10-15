@@ -165,6 +165,26 @@ abstract class OpenAiCompatibleProviderAdapter(
         )
     }
 
+    protected suspend fun fetchModelsInternal(apiKey: String): List<ModelDescriptor> = withContext(ioDispatcher) {
+        val baseUrl = resolveBaseUrl()
+        val request = Request.Builder()
+            .url(baseUrl.ensureTrailingSlash() + "models")
+            .header("Authorization", "Bearer $apiKey")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw type.toProviderServiceException(response.code, body)
+            val parsed = json.decodeFromString(ModelListResponse.serializer(), body)
+            parsed.data
+                .map { it.id.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+                .map { modelId -> ModelCatalog.customChatModel(baseUrl = baseUrl, modelId = modelId) }
+        }
+    }
+
     protected fun executeJsonRequest(baseUrl: String, apiKey: String, path: String, bodyJson: String): String {
         val request = Request.Builder()
             .url(baseUrl.ensureTrailingSlash() + path)
@@ -172,257 +192,4 @@ abstract class OpenAiCompatibleProviderAdapter(
             .header("Content-Type", "application/json")
             .post(bodyJson.toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw type.toProviderServiceException(response.code, body)
-            return body
-        }
-    }
-}
-
-class QwenProvider @Inject constructor(
-    promptComposer: PromptComposer,
-    client: OkHttpClient,
-    json: Json,
-    ioDispatcher: CoroutineDispatcher,
-) : OpenAiCompatibleProviderAdapter(
-    type = ProviderType.QWEN,
-    staticBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/",
-    promptComposer = promptComposer,
-    client = client,
-    json = json,
-    ioDispatcher = ioDispatcher,
-), ChatProvider, EmbeddingProvider, SpeechToTextProvider {
-    override suspend fun listModels(apiKey: String): List<ModelDescriptor> = availableModels()
-
-    override suspend fun generateAnswer(apiKey: String, request: AnswerGenerationRequest): ProviderAnswerResult {
-        return generateAnswerInternal(apiKey, request)
-    }
-
-    override suspend fun transcribeAudio(apiKey: String, request: AudioTranscriptionRequest): TranscriptionResult {
-        return withContext(ioDispatcher) {
-            val file = File(request.audioFilePath)
-            require(file.exists()) { "录音文件不存在，请重录后再试。" }
-            val base64Audio = Base64.getEncoder().encodeToString(file.readBytes())
-            val dataUri = "data:${request.mimeType};base64,$base64Audio"
-            val payload = QwenAsrRequest(
-                model = request.modelId,
-                messages = listOf(
-                    QwenAsrMessage(
-                        role = "user",
-                        content = listOf(
-                            QwenAsrInput(
-                                type = "input_audio",
-                                inputAudio = QwenInputAudio(data = dataUri),
-                            ),
-                        ),
-                    ),
-                ),
-                asrOptions = QwenAsrOptions(enableItn = true),
-            )
-            val response = executeJsonRequest(
-                baseUrl = resolveBaseUrl(),
-                apiKey = apiKey,
-                path = "chat/completions",
-                bodyJson = json.encodeToString(QwenAsrRequest.serializer(), payload),
-            )
-            val parsed = json.decodeFromString(ChatCompletionResponse.serializer(), response)
-            TranscriptionResult(text = parsed.choices.firstOrNull()?.message?.content?.trim().orEmpty())
-        }
-    }
-
-    override suspend fun embed(apiKey: String, request: EmbeddingRequest): EmbeddingResult {
-        return embedInternal(apiKey, request)
-    }
-}
-
-class ZhipuProvider @Inject constructor(
-    promptComposer: PromptComposer,
-    client: OkHttpClient,
-    json: Json,
-    ioDispatcher: CoroutineDispatcher,
-) : OpenAiCompatibleProviderAdapter(
-    type = ProviderType.ZHIPU,
-    staticBaseUrl = "https://open.bigmodel.cn/api/paas/v4/",
-    promptComposer = promptComposer,
-    client = client,
-    json = json,
-    ioDispatcher = ioDispatcher,
-), ChatProvider, EmbeddingProvider, SpeechToTextProvider {
-    override suspend fun listModels(apiKey: String): List<ModelDescriptor> = availableModels()
-
-    override suspend fun generateAnswer(apiKey: String, request: AnswerGenerationRequest): ProviderAnswerResult {
-        return generateAnswerInternal(apiKey, request)
-    }
-
-    override suspend fun transcribeAudio(apiKey: String, request: AudioTranscriptionRequest): TranscriptionResult {
-        return transcribeAudioInternal(apiKey, request)
-    }
-
-    override suspend fun embed(apiKey: String, request: EmbeddingRequest): EmbeddingResult {
-        return embedInternal(apiKey, request)
-    }
-}
-
-class DeepSeekProvider @Inject constructor(
-    promptComposer: PromptComposer,
-    client: OkHttpClient,
-    json: Json,
-    ioDispatcher: CoroutineDispatcher,
-) : OpenAiCompatibleProviderAdapter(
-    type = ProviderType.DEEPSEEK,
-    staticBaseUrl = "https://api.deepseek.com/v1/",
-    promptComposer = promptComposer,
-    client = client,
-    json = json,
-    ioDispatcher = ioDispatcher,
-), ChatProvider {
-    override suspend fun listModels(apiKey: String): List<ModelDescriptor> = availableModels()
-
-    override suspend fun generateAnswer(apiKey: String, request: AnswerGenerationRequest): ProviderAnswerResult {
-        return generateAnswerInternal(apiKey, request)
-    }
-}
-
-class CustomOpenAiCompatibleProvider @Inject constructor(
-    private val userPreferencesDataSource: UserPreferencesDataSource,
-    promptComposer: PromptComposer,
-    client: OkHttpClient,
-    json: Json,
-    ioDispatcher: CoroutineDispatcher,
-) : OpenAiCompatibleProviderAdapter(
-    type = ProviderType.CUSTOM,
-    promptComposer = promptComposer,
-    client = client,
-    json = json,
-    ioDispatcher = ioDispatcher,
-), ChatProvider, EmbeddingProvider, SpeechToTextProvider {
-    override suspend fun resolveBaseUrl(): String {
-        val prefs = userPreferencesDataSource.preferences.first()
-        val baseUrl = prefs.customBaseUrl.trim()
-        require(baseUrl.isNotBlank()) { "请先填写自定义兼容接口的 Base URL。" }
-        return baseUrl
-    }
-
-    override suspend fun listModels(apiKey: String): List<ModelDescriptor> {
-        val prefs = userPreferencesDataSource.preferences.first()
-        return listOf(
-            ModelCatalog.customChatModel(
-                baseUrl = prefs.customBaseUrl,
-                modelId = prefs.customChatModelId.ifBlank { SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL },
-            ),
-        )
-    }
-
-    override suspend fun generateAnswer(apiKey: String, request: AnswerGenerationRequest): ProviderAnswerResult {
-        require(request.modelId.isNotBlank()) { "请先填写自定义兼容接口的聊天模型。" }
-        return generateAnswerInternal(apiKey, request)
-    }
-
-    override suspend fun embed(apiKey: String, request: EmbeddingRequest): EmbeddingResult {
-        require(request.modelId.isNotBlank()) { "请先填写自定义兼容接口的向量模型。" }
-        return embedInternal(apiKey, request)
-    }
-
-    override suspend fun transcribeAudio(apiKey: String, request: AudioTranscriptionRequest): TranscriptionResult {
-        require(request.modelId.isNotBlank()) { "请先填写自定义兼容接口的语音模型。" }
-        return transcribeAudioInternal(apiKey, request)
-    }
-}
-
-@Serializable
-private data class ChatCompletionRequest(
-    val model: String,
-    val messages: List<ChatMessage>,
-    val temperature: Double,
-    @SerialName("max_tokens") val maxTokens: Int? = null,
-)
-
-@Serializable
-private data class ChatMessage(
-    val role: String,
-    val content: String,
-)
-
-@Serializable
-private data class ChatCompletionResponse(
-    val choices: List<Choice>,
-    val usage: UsagePayload? = null,
-) {
-    @Serializable
-    data class Choice(
-        val message: ChatMessage,
-    )
-}
-
-@Serializable
-private data class AudioTranscriptionResponse(
-    val text: String,
-)
-
-@Serializable
-private data class QwenAsrRequest(
-    val model: String,
-    val messages: List<QwenAsrMessage>,
-    val stream: Boolean = false,
-    @SerialName("asr_options") val asrOptions: QwenAsrOptions? = null,
-)
-
-@Serializable
-private data class QwenAsrMessage(
-    val role: String,
-    val content: List<QwenAsrInput>,
-)
-
-@Serializable
-private data class QwenAsrInput(
-    val type: String,
-    @SerialName("input_audio") val inputAudio: QwenInputAudio,
-)
-
-@Serializable
-private data class QwenInputAudio(
-    val data: String,
-)
-
-@Serializable
-private data class QwenAsrOptions(
-    @SerialName("enable_itn") val enableItn: Boolean = true,
-)
-
-@Serializable
-private data class EmbeddingPayload(
-    val model: String,
-    val input: String,
-)
-
-@Serializable
-private data class EmbeddingResponse(
-    val data: List<EmbeddingItem>,
-    val usage: UsagePayload? = null,
-) {
-    @Serializable
-    data class EmbeddingItem(
-        val embedding: List<Float>,
-    )
-}
-
-@Serializable
-private data class UsagePayload(
-    @SerialName("prompt_tokens") val promptTokens: Int = 0,
-    @SerialName("completion_tokens") val completionTokens: Int = 0,
-    @SerialName("total_tokens") val totalTokens: Int = promptTokens + completionTokens,
-) {
-    fun toUsage(model: ModelDescriptor): UsageCost {
-        val inputCost = promptTokens / 1_000_000.0 * model.inputPricePer1M
-        val outputCost = completionTokens / 1_000_000.0 * model.outputPricePer1M
-        return UsageCost(
-            promptTokens = promptTokens,
-            completionTokens = completionTokens,
-            totalTokens = totalTokens,
-            estimatedCostUsd = inputCost + outputCost,
-        )
-    }
-}
-
-private fun String.ensureTrailingSlash(): String = if (endsWith("/")) this else "$this/"
+        client.newCall(request).exeP��
