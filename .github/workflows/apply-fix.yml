@@ -1,0 +1,56 @@
+name: Apply model list fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download patched sources
+        run: |
+          set -e
+          curl -fsSL https://dpaste.com/GQX9HW2SG.txt -o core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt
+          curl -fsSL https://dpaste.com/BEDUPEK39.txt -o core/data/src/main/java/com/kuaida/core/data/repository/SettingsRepository.kt
+          curl -fsSL https://dpaste.com/B43LVUTZW.txt -o feature/settings/src/main/java/com/kuaida/feature/settings/SettingsViewModel.kt
+          curl -fsSL https://dpaste.com/67RY8KU9P.txt -o feature/settings/src/main/java/com/kuaida/feature/settings/SettingsScreen.kt
+          wc -c core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt
+          grep -c fetchModelsInternal core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt
+
+      - name: Commit patched sources
+        run: |
+          git config user.name "openminis-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat: 支持从接口拉取可用模型列表 [skip ci]"
+          git push
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/kuaida-debug.apk
+          ls -lh out
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-${{ github.run_number }}
+          name: 快答 debug build models-${{ github.run_number }}
+          files: out/kuaida-debug.apk
+          body: 支持从接口自动拉取可用模型列表。
