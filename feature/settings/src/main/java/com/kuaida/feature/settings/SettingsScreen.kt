@@ -89,14 +89,12 @@ object SettingsRoute {
             onTokenLimitDraftChange = viewModel::updateTokenLimitDraft,
             onApplyTokenLimit = viewModel::applyTokenLimitDraft,
             onQuickTokenLimit = viewModel::applyTokenLimit,
-            onEmbeddingVendorChange = viewModel::selectEmbeddingVendor,
-            onEmbeddingKeyChange = { viewModel.updateDraftKey(state.embeddingVendor, it) },
-            onClearEmbeddingKey = { viewModel.clearApiKey(state.embeddingVendor) },
-            onSaveEmbedding = viewModel::saveEmbeddingConfig,
-            onSpeechVendorChange = viewModel::selectSpeechVendor,
-            onSpeechKeyChange = { viewModel.updateDraftKey(state.speechVendor, it) },
-            onClearSpeechKey = { viewModel.clearApiKey(state.speechVendor) },
-            onSaveSpeech = viewModel::saveSpeechConfig,
+            onAuxBaseUrlChange = viewModel::updateAuxBaseUrlDraft,
+            onAuxEmbeddingModelChange = viewModel::updateAuxEmbeddingModelDraft,
+            onAuxSpeechModelChange = viewModel::updateAuxSpeechModelDraft,
+            onAuxKeyChange = { viewModel.updateDraftKey(ProviderType.CUSTOM_AUX, it) },
+            onClearAuxKey = { viewModel.clearApiKey(ProviderType.CUSTOM_AUX) },
+            onSaveAuxConfig = viewModel::saveAuxConfig,
         )
     }
 }
@@ -117,6 +115,12 @@ internal fun SettingsScreen(
     onTokenLimitDraftChange: (String) -> Unit,
     onApplyTokenLimit: () -> Unit,
     onQuickTokenLimit: (Int) -> Unit,
+    onAuxBaseUrlChange: (String) -> Unit = {},
+    onAuxEmbeddingModelChange: (String) -> Unit = {},
+    onAuxSpeechModelChange: (String) -> Unit = {},
+    onAuxKeyChange: (String) -> Unit = {},
+    onClearAuxKey: () -> Unit = {},
+    onSaveAuxConfig: () -> Unit = {},
     onEmbeddingVendorChange: (ProviderType) -> Unit = {},
     onEmbeddingKeyChange: (String) -> Unit = {},
     onClearEmbeddingKey: () -> Unit = {},
@@ -134,27 +138,6 @@ internal fun SettingsScreen(
         (state.remoteChatModels + builtInModelOptions).distinctBy { it.modelId }
     }
     val configured = state.configuredProviders[ProviderType.CUSTOM] == true
-    val vectorVendors = listOf(ProviderType.QWEN, ProviderType.ZHIPU)
-    val embeddingOptions = ModelCatalog.embeddingByProvider(state.embeddingVendor)
-    val speechOptions = ModelCatalog.speechToTextByProvider(state.speechVendor)
-    var selectedEmbeddingModelId by remember(state.embeddingVendor) {
-        mutableStateOf(
-            state.embeddingModel
-                .takeIf { it.provider == state.embeddingVendor }
-                ?.modelId
-                .orEmpty()
-                .ifBlank { embeddingOptions.firstOrNull()?.modelId.orEmpty() },
-        )
-    }
-    var selectedSpeechModelId by remember(state.speechVendor) {
-        mutableStateOf(
-            state.speechToTextModel
-                .takeIf { it.provider == state.speechVendor }
-                ?.modelId
-                .orEmpty()
-                .ifBlank { speechOptions.firstOrNull()?.modelId.orEmpty() },
-        )
-    }
 
     QuickAnswerScaffold(
         title = "设置",
@@ -234,126 +217,67 @@ internal fun SettingsScreen(
 
             item {
                 SettingsCard(
-                    title = "知识库向量接口",
-                    description = "可选。给知识库单独指定向量接口，不影响上面的聊天接口。",
+                    title = "知识库与录音接口",
+                    description = "可选。给向量和录音转写单独指定接口，不影响上面的聊天接口。",
                 ) {
                     HintLine(
-                        "不配置时会退回关键词检索，召回效果会差一些。当前向量模型：${state.embeddingModel.displayName}",
+                        "不配置时会退回关键词检索/语音转写不可用。当前向量模型：${state.embeddingModel.displayName}，当前转写模型：${state.speechToTextModel.displayName}",
                     )
 
                     HorizontalDivider()
 
-                    SectionLabel("厂商")
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        vectorVendors.forEach { vendor ->
-                            FilterChip(
-                                selected = state.embeddingVendor == vendor,
-                                onClick = { onEmbeddingVendorChange(vendor) },
-                                label = { Text(vendor.displayLabel()) },
-                            )
-                        }
-                    }
-                    HintLine("DeepSeek 没有向量接口，所以这里只能选阿里百炼或智谱 AI。")
+                    SectionLabel("Base URL")
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = state.auxBaseUrl,
+                        onValueChange = onAuxBaseUrlChange,
+                        label = { Text("Base URL") },
+                        placeholder = { Text("https://api.a6api.com/v1") },
+                        singleLine = true,
+                    )
 
                     HorizontalDivider()
 
                     ProviderCredentialCard(
-                        value = state.providerKeys[state.embeddingVendor].orEmpty(),
-                        configured = state.configuredProviders[state.embeddingVendor] == true,
-                        onValueChange = onEmbeddingKeyChange,
-                        onSave = { onSaveEmbedding(state.embeddingVendor, selectedEmbeddingModelId) },
-                        onClear = onClearEmbeddingKey,
+                        value = state.providerKeys[ProviderType.CUSTOM_AUX].orEmpty(),
+                        configured = state.configuredProviders[ProviderType.CUSTOM_AUX] == true,
+                        onValueChange = onAuxKeyChange,
+                        onSave = onSaveAuxConfig,
+                        onClear = onClearAuxKey,
                     )
 
                     HorizontalDivider()
 
                     SectionLabel("向量模型")
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        embeddingOptions.forEach { model ->
-                            FilterChip(
-                                selected = selectedEmbeddingModelId == model.modelId,
-                                onClick = { selectedEmbeddingModelId = model.modelId },
-                                label = { Text(model.displayName) },
-                            )
-                        }
-                    }
-                    HintLine("模型要跟着上面的厂商走。保存后，知识库入库和问题检索都会改用这个模型。")
-
-                    Button(
-                        onClick = { onSaveEmbedding(state.embeddingVendor, selectedEmbeddingModelId) },
-                        enabled = selectedEmbeddingModelId.isNotBlank(),
+                    OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("保存知识库向量接口")
-                    }
-                }
-            }
-
-            item {
-                SettingsCard(
-                    title = "录音转写接口",
-                    description = "可选。给录音转写单独指定接口，不影响上面的聊天接口。",
-                ) {
-                    HintLine(
-                        "不配置时语音转写不可用，只能手动输入问题。当前转写模型：${state.speechToTextModel.displayName}",
+                        value = state.auxEmbeddingModelId,
+                        onValueChange = onAuxEmbeddingModelChange,
+                        label = { Text("向量模型 ID") },
+                        placeholder = { Text("BAAI/bge-m3") },
+                        singleLine = true,
                     )
 
                     HorizontalDivider()
 
-                    SectionLabel("厂商")
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        vectorVendors.forEach { vendor ->
-                            FilterChip(
-                                selected = state.speechVendor == vendor,
-                                onClick = { onSpeechVendorChange(vendor) },
-                                label = { Text(vendor.displayLabel()) },
-                            )
-                        }
-                    }
-                    HintLine("DeepSeek 没有语音识别接口，所以这里只能选阿里百炼或智谱 AI。")
-
-                    HorizontalDivider()
-
-                    ProviderCredentialCard(
-                        value = state.providerKeys[state.speechVendor].orEmpty(),
-                        configured = state.configuredProviders[state.speechVendor] == true,
-                        onValueChange = onSpeechKeyChange,
-                        onSave = { onSaveSpeech(state.speechVendor, selectedSpeechModelId) },
-                        onClear = onClearSpeechKey,
+                    SectionLabel("语音模型")
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = state.auxSpeechModelId,
+                        onValueChange = onAuxSpeechModelChange,
+                        label = { Text("语音模型 ID") },
+                        placeholder = { Text("FunAudioLLM/SenseVoiceSmall") },
+                        singleLine = true,
                     )
 
                     HorizontalDivider()
 
-                    SectionLabel("转写模型")
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        speechOptions.forEach { model ->
-                            FilterChip(
-                                selected = selectedSpeechModelId == model.modelId,
-                                onClick = { selectedSpeechModelId = model.modelId },
-                                label = { Text(model.displayName) },
-                            )
-                        }
-                    }
-                    HintLine("模型要跟着上面的厂商走。保存后，下一次录音转写就会改用这个模型。")
-
                     Button(
-                        onClick = { onSaveSpeech(state.speechVendor, selectedSpeechModelId) },
-                        enabled = selectedSpeechModelId.isNotBlank(),
+                        onClick = onSaveAuxConfig,
+                        enabled = state.auxBaseUrl.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("保存录音转写接口")
+                        Text("保存知识库与录音接口")
                     }
                 }
             }

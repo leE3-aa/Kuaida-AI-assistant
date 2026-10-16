@@ -30,9 +30,10 @@ class SettingsViewModel @Inject constructor(
     private val customBaseUrlDraft = MutableStateFlow(SettingsDefaults.DEFAULT_CUSTOM_BASE_URL)
     private val customChatModelDraft = MutableStateFlow(SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL)
     private val customEmbeddingModelDraft = MutableStateFlow(SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL)
+    private val auxBaseUrlDraft = MutableStateFlow(SettingsDefaults.DEFAULT_AUX_BASE_URL)
+    private val auxEmbeddingModelDraft = MutableStateFlow(SettingsDefaults.DEFAULT_AUX_EMBEDDING_MODEL)
+    private val auxSpeechModelDraft = MutableStateFlow(SettingsDefaults.DEFAULT_AUX_SPEECH_MODEL)
     private val tokenLimitDraft = MutableStateFlow(SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString())
-    private val embeddingVendor = MutableStateFlow(ProviderType.QWEN)
-    private val speechVendor = MutableStateFlow(ProviderType.QWEN)
     private val message = MutableStateFlow<UiMessage?>(null)
     private val remoteModelsState = MutableStateFlow(RemoteModelsState())
     private val customProviderDrafts = combine(
@@ -49,14 +50,16 @@ class SettingsViewModel @Inject constructor(
             loadingModels = remote.loading,
         )
     }
-    private val vendorSelection = combine(
-        embeddingVendor,
-        speechVendor,
+    private val auxDrafts = combine(
+        auxBaseUrlDraft,
+        auxEmbeddingModelDraft,
+        auxSpeechModelDraft,
         tokenLimitDraft,
-    ) { embedding, speech, tokenDraft ->
-        VendorSelection(
-            embeddingVendor = embedding,
-            speechVendor = speech,
+    ) { baseUrl, embeddingModelId, speechModelId, tokenDraft ->
+        AuxDrafts(
+            baseUrl = baseUrl,
+            embeddingModelId = embeddingModelId,
+            speechModelId = speechModelId,
             tokenLimitDraft = tokenDraft,
         )
     }
@@ -72,6 +75,10 @@ class SettingsViewModel @Inject constructor(
             customBaseUrlDraft.value = summary.customProviderConfig.baseUrl
             customChatModelDraft.value = summary.customProviderConfig.chatModelId
             customEmbeddingModelDraft.value = summary.customProviderConfig.embeddingModelId
+            val prefs = repository.userPreferences.first()
+            auxBaseUrlDraft.value = prefs.auxBaseUrl
+            auxEmbeddingModelDraft.value = prefs.auxEmbeddingModelId
+            auxSpeechModelDraft.value = prefs.auxSpeechModelId
         }
     }
 
@@ -79,27 +86,28 @@ class SettingsViewModel @Inject constructor(
         repository.settingsSummary,
         drafts,
         customProviderDrafts,
-        vendorSelection,
+        auxDrafts,
         message,
-    ) { summary, keyDrafts, customDrafts, vendorState, uiMessage ->
+    ) { summary, keyDrafts, customDrafts, auxDrafts, uiMessage ->
         SettingsUiState(
             availableProviders = availableProviders(),
             selectedModel = summary.selectedModel,
             availableModels = ModelCatalog.chatModels,
             selectedStyle = summary.selectedStyle,
             tokenLimit = summary.tokenLimit,
-            tokenLimitDraft = vendorState.tokenLimitDraft,
+            tokenLimitDraft = auxDrafts.tokenLimitDraft,
             embeddingModel = summary.embeddingModel,
             embeddingModels = ModelCatalog.embeddingModels,
-            embeddingVendor = vendorState.embeddingVendor,
             speechToTextModel = summary.speechToTextModel,
             speechToTextModels = ModelCatalog.speechToTextModels,
-            speechVendor = vendorState.speechVendor,
             providerKeys = keyDrafts,
             configuredProviders = summary.configuredProviders,
             customBaseUrl = customDrafts.baseUrl,
             customChatModelId = customDrafts.chatModelId,
             customEmbeddingModelId = customDrafts.embeddingModelId,
+            auxBaseUrl = auxDrafts.baseUrl,
+            auxEmbeddingModelId = auxDrafts.embeddingModelId,
+            auxSpeechModelId = auxDrafts.speechModelId,
             remoteChatModels = customDrafts.remoteModels,
             loadingModels = customDrafts.loadingModels,
             totalTokens = summary.totalTokens,
@@ -123,6 +131,51 @@ class SettingsViewModel @Inject constructor(
 
     fun updateCustomEmbeddingModelDraft(value: String) {
         customEmbeddingModelDraft.value = value
+    }
+
+    fun updateAuxBaseUrlDraft(value: String) {
+        auxBaseUrlDraft.value = value
+    }
+
+    fun updateAuxEmbeddingModelDraft(value: String) {
+        auxEmbeddingModelDraft.value = value
+    }
+
+    fun updateAuxSpeechModelDraft(value: String) {
+        auxSpeechModelDraft.value = value
+    }
+
+    fun saveAuxConfig() {
+        viewModelScope.launch {
+            runCatching {
+                val baseUrl = auxBaseUrlDraft.value.trim()
+                if (baseUrl.isBlank()) {
+                    message.value = UiMessage(message = "请先填写向量接口的 Base URL。")
+                    return@launch
+                }
+                val embeddingModel = auxEmbeddingModelDraft.value.trim()
+                val speechModel = auxSpeechModelDraft.value.trim()
+                val draft = drafts.value[ProviderType.CUSTOM_AUX].orEmpty().trim()
+                if (draft.isNotBlank() && !draft.startsWith("••••")) {
+                    val validation = repository.validateApiKey(ProviderType.CUSTOM_AUX, draft)
+                    if (!validation.success) {
+                        message.value = UiMessage(message = validation.message)
+                        return@launch
+                    }
+                    repository.saveApiKey(ProviderType.CUSTOM_AUX, draft)
+                    val masked = repository.maskedApiKeys()[ProviderType.CUSTOM_AUX].orEmpty()
+                    drafts.update { it + (ProviderType.CUSTOM_AUX to masked) }
+                }
+                repository.updateAuxConfig(baseUrl, embeddingModel, speechModel)
+                repository.updateSelectedEmbeddingModel(ProviderType.CUSTOM_AUX, embeddingModel)
+                repository.updateSelectedSpeechToTextModel(ProviderType.CUSTOM_AUX, speechModel)
+                message.value = UiMessage(
+                    message = "知识库与录音接口已保存，向量模型 $embeddingModel。",
+                )
+            }.onFailure { throwable ->
+                message.value = UiMessage(message = throwable.toUserMessage("保存失败，请稍后重试。"))
+            }
+        }
     }
 
     fun refreshRemoteModels(silent: Boolean = false) {
@@ -250,70 +303,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { repository.updateSelectedSpeechToTextModel(provider, modelId) }
     }
 
-    fun selectEmbeddingVendor(provider: ProviderType) {
-        embeddingVendor.value = provider
-    }
-
-    fun selectSpeechVendor(provider: ProviderType) {
-        speechVendor.value = provider
-    }
-
-    fun saveEmbeddingConfig(provider: ProviderType, modelId: String) {
-        viewModelScope.launch {
-            runCatching {
-                if (modelId.isBlank()) {
-                    message.value = UiMessage(message = "请先选择要使用的向量模型。")
-                    return@launch
-                }
-                val draft = drafts.value[provider].orEmpty().trim()
-                if (draft.isNotBlank() && !draft.startsWith("••••")) {
-                    val validation = repository.validateApiKey(provider, draft)
-                    if (!validation.success) {
-                        message.value = UiMessage(message = validation.message)
-                        return@launch
-                    }
-                    repository.saveApiKey(provider, draft)
-                    val masked = repository.maskedApiKeys()[provider].orEmpty()
-                    drafts.update { it + (provider to masked) }
-                }
-                repository.updateSelectedEmbeddingModel(provider, modelId)
-                message.value = UiMessage(
-                    message = "知识库向量接口已设置为 ${provider.displayLabel()} · $modelId。",
-                )
-            }.onFailure { throwable ->
-                message.value = UiMessage(message = throwable.toUserMessage("保存失败，请稍后重试。"))
-            }
-        }
-    }
-
-    fun saveSpeechConfig(provider: ProviderType, modelId: String) {
-        viewModelScope.launch {
-            runCatching {
-                if (modelId.isBlank()) {
-                    message.value = UiMessage(message = "请先选择要使用的语音识别模型。")
-                    return@launch
-                }
-                val draft = drafts.value[provider].orEmpty().trim()
-                if (draft.isNotBlank() && !draft.startsWith("••••")) {
-                    val validation = repository.validateApiKey(provider, draft)
-                    if (!validation.success) {
-                        message.value = UiMessage(message = validation.message)
-                        return@launch
-                    }
-                    repository.saveApiKey(provider, draft)
-                    val masked = repository.maskedApiKeys()[provider].orEmpty()
-                    drafts.update { it + (provider to masked) }
-                }
-                repository.updateSelectedSpeechToTextModel(provider, modelId)
-                message.value = UiMessage(
-                    message = "录音转写接口已设置为 ${provider.displayLabel()} · $modelId。",
-                )
-            }.onFailure { throwable ->
-                message.value = UiMessage(message = throwable.toUserMessage("保存失败，请稍后重试。"))
-            }
-        }
-    }
-
     fun selectProvider(provider: ProviderType) {
         viewModelScope.launch {
             if (provider == ProviderType.CUSTOM) {
@@ -436,15 +425,16 @@ data class SettingsUiState(
     val tokenLimitDraft: String = SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString(),
     val embeddingModel: ModelDescriptor = ModelCatalog.defaultEmbeddingModel(),
     val embeddingModels: List<ModelDescriptor> = ModelCatalog.embeddingModels,
-    val embeddingVendor: ProviderType = ProviderType.QWEN,
     val speechToTextModel: ModelDescriptor = ModelCatalog.defaultSpeechToTextModel(),
     val speechToTextModels: List<ModelDescriptor> = ModelCatalog.speechToTextModels,
-    val speechVendor: ProviderType = ProviderType.QWEN,
     val providerKeys: Map<ProviderType, String> = ProviderType.entries.associateWith { "" },
     val configuredProviders: Map<ProviderType, Boolean> = ProviderType.entries.associateWith { false },
     val customBaseUrl: String = SettingsDefaults.DEFAULT_CUSTOM_BASE_URL,
     val customChatModelId: String = SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL,
     val customEmbeddingModelId: String = SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL,
+    val auxBaseUrl: String = SettingsDefaults.DEFAULT_AUX_BASE_URL,
+    val auxEmbeddingModelId: String = SettingsDefaults.DEFAULT_AUX_EMBEDDING_MODEL,
+    val auxSpeechModelId: String = SettingsDefaults.DEFAULT_AUX_SPEECH_MODEL,
     val remoteChatModels: List<ModelDescriptor> = emptyList(),
     val loadingModels: Boolean = false,
     val totalTokens: Int = 0,
@@ -466,8 +456,9 @@ private data class CustomDrafts(
     val loadingModels: Boolean = false,
 )
 
-private data class VendorSelection(
-    val embeddingVendor: ProviderType = ProviderType.QWEN,
-    val speechVendor: ProviderType = ProviderType.QWEN,
+private data class AuxDrafts(
+    val baseUrl: String,
+    val embeddingModelId: String,
+    val speechModelId: String,
     val tokenLimitDraft: String = SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString(),
 )

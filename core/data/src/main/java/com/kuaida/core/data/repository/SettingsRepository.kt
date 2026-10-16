@@ -30,6 +30,8 @@ class SettingsRepository @Inject constructor(
     private val secureSecretStorage: SecureSecretStorage,
     private val providerRegistry: ProviderRegistry,
 ) {
+    val userPreferences: Flow<com.kuaida.core.data.datastore.UserPreferences> = preferences.preferences
+
     val selectedModel: Flow<ModelDescriptor> = preferences.preferences.map {
         resolveChatModel(it)
     }
@@ -39,7 +41,7 @@ class SettingsRepository @Inject constructor(
     }
 
     val selectedSpeechToTextModel: Flow<ModelDescriptor> = preferences.preferences.map {
-        ModelCatalog.findSpeechToText(it.selectedSpeechToTextProvider, it.selectedSpeechToTextModelId)
+        resolveSpeechToTextModel(it)
     }
 
     val selectedStyle: Flow<AnswerStylePreset> = preferences.preferences.map { it.selectedStyle }
@@ -180,6 +182,14 @@ class SettingsRepository @Inject constructor(
         preferences.setHighCostAlert(enabled)
     }
 
+    suspend fun updateAuxConfig(baseUrl: String, embeddingModelId: String, speechModelId: String) {
+        preferences.setAuxConfig(
+            baseUrl = baseUrl.trim(),
+            embeddingModelId = embeddingModelId.trim(),
+            speechModelId = speechModelId.trim(),
+        )
+    }
+
     suspend fun maskedApiKeys(): Map<ProviderType, String> {
         return providerCredentialDao.observeAll().first().associate { entity ->
             entity.provider to if (entity.isConfigured) "••••••••••••${entity.last4}" else ""
@@ -198,13 +208,30 @@ class SettingsRepository @Inject constructor(
     }
 
     private fun resolveEmbeddingModel(prefs: com.kuaida.core.data.datastore.UserPreferences): ModelDescriptor {
-        return if (prefs.selectedEmbeddingProvider == ProviderType.CUSTOM) {
-            ModelCatalog.customEmbeddingModel(
+        return when (prefs.selectedEmbeddingProvider) {
+            ProviderType.CUSTOM -> ModelCatalog.customEmbeddingModel(
                 baseUrl = prefs.customBaseUrl,
                 modelId = prefs.customEmbeddingModelId,
             )
-        } else {
-            ModelCatalog.findEmbedding(prefs.selectedEmbeddingProvider, prefs.selectedEmbeddingModelId)
+            ProviderType.CUSTOM_AUX -> ModelCatalog.customAuxEmbeddingModel(
+                baseUrl = prefs.auxBaseUrl,
+                modelId = prefs.auxEmbeddingModelId,
+            )
+            else -> ModelCatalog.findEmbedding(prefs.selectedEmbeddingProvider, prefs.selectedEmbeddingModelId)
+        }
+    }
+
+    private fun resolveSpeechToTextModel(prefs: com.kuaida.core.data.datastore.UserPreferences): ModelDescriptor {
+        return when (prefs.selectedSpeechToTextProvider) {
+            ProviderType.CUSTOM -> ModelCatalog.customSpeechToTextModel(
+                baseUrl = prefs.customBaseUrl,
+                modelId = SettingsDefaults.DEFAULT_CUSTOM_SPEECH_MODEL,
+            )
+            ProviderType.CUSTOM_AUX -> ModelCatalog.customAuxSpeechModel(
+                baseUrl = prefs.auxBaseUrl,
+                modelId = prefs.auxSpeechModelId,
+            )
+            else -> ModelCatalog.findSpeechToText(prefs.selectedSpeechToTextProvider, prefs.selectedSpeechToTextModelId)
         }
     }
 }

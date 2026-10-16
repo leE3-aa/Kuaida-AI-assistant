@@ -343,6 +343,38 @@ class CustomOpenAiCompatibleProvider @Inject constructor(
     }
 }
 
+class CustomAuxProvider @Inject constructor(
+    private val userPreferencesDataSource: UserPreferencesDataSource,
+    promptComposer: PromptComposer,
+    client: OkHttpClient,
+    json: Json,
+    ioDispatcher: CoroutineDispatcher,
+) : OpenAiCompatibleProviderAdapter(
+    type = ProviderType.CUSTOM_AUX,
+    promptComposer = promptComposer,
+    client = client,
+    json = json,
+    ioDispatcher = ioDispatcher,
+), EmbeddingProvider, SpeechToTextProvider {
+
+    override suspend fun resolveBaseUrl(): String {
+        val prefs = userPreferencesDataSource.preferences.first()
+        val baseUrl = prefs.auxBaseUrl.trim()
+        require(baseUrl.isNotBlank()) { "请先填写自定义向量接口的 Base URL。" }
+        return baseUrl
+    }
+
+    override suspend fun embed(apiKey: String, request: EmbeddingRequest): EmbeddingResult {
+        require(request.modelId.isNotBlank()) { "请先填写自定义向量接口的向量模型。" }
+        return embedInternal(apiKey, request)
+    }
+
+    override suspend fun transcribeAudio(apiKey: String, request: AudioTranscriptionRequest): TranscriptionResult {
+        require(request.modelId.isNotBlank()) { "请先填写自定义向量接口的语音模型。" }
+        return transcribeAudioInternal(apiKey, request)
+    }
+}
+
 @Serializable
 private data class ChatCompletionRequest(
     val model: String,

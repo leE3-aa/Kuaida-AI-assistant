@@ -7,6 +7,7 @@ enum class ProviderType {
     ZHIPU,
     DEEPSEEK,
     CUSTOM,
+    CUSTOM_AUX,
     ;
 
     companion object {
@@ -266,6 +267,9 @@ object SettingsDefaults {
     const val DEFAULT_CUSTOM_CHAT_MODEL = "deepseek-ai/DeepSeek-V3"
     const val DEFAULT_CUSTOM_EMBEDDING_MODEL = "BAAI/bge-m3"
     const val DEFAULT_CUSTOM_SPEECH_MODEL = "FunAudioLLM/SenseVoiceSmall"
+    const val DEFAULT_AUX_BASE_URL = ""
+    const val DEFAULT_AUX_EMBEDDING_MODEL = "BAAI/bge-m3"
+    const val DEFAULT_AUX_SPEECH_MODEL = "FunAudioLLM/SenseVoiceSmall"
 }
 
 data class TemplateItem(

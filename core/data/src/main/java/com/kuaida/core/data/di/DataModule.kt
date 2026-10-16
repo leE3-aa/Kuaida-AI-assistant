@@ -170,4 +170,28 @@ object DataModule {
     @Provides
     @IntoSet
     fun provideCustomSpeechToTextProvider(provider: CustomOpenAiCompatibleProvider): SpeechToTextProvider = provider
+
+    @Provides
+    @Singleton
+    fun provideCustomAuxProvider(
+        userPreferencesDataSource: com.kuaida.core.data.datastore.UserPreferencesDataSource,
+        promptComposer: com.kuaida.core.data.provider.PromptComposer,
+        client: OkHttpClient,
+        json: Json,
+        @IoDispatcher ioDispatcher: CoroutineDispatcher,
+    ): com.kuaida.core.data.provider.CustomAuxProvider = com.kuaida.core.data.provider.CustomAuxProvider(
+        userPreferencesDataSource = userPreferencesDataSource,
+        promptComposer = promptComposer,
+        client = client,
+        json = json,
+        ioDispatcher = ioDispatcher,
+    )
+
+    @Provides
+    @IntoSet
+    fun provideCustomAuxEmbeddingProvider(provider: com.kuaida.core.data.provider.CustomAuxProvider): EmbeddingProvider = provider
+
+    @Provides
+    @IntoSet
+    fun provideCustomAuxSpeechToTextProvider(provider: com.kuaida.core.data.provider.CustomAuxProvider): SpeechToTextProvider = provider
 }

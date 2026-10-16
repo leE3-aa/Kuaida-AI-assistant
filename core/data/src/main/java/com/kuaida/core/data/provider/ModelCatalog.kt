@@ -238,6 +238,48 @@ object ModelCatalog {
         )
     }
 
+    fun customAuxEmbeddingModel(
+        baseUrl: String = "",
+        modelId: String = "",
+    ): ModelDescriptor {
+        val normalizedModelId = modelId.trim()
+        val providerLabel = customProviderLabel(baseUrl)
+        val displayName = if (normalizedModelId.isBlank()) {
+            "$providerLabel - 未设置向量模型"
+        } else {
+            "$providerLabel - $normalizedModelId"
+        }
+        return ModelDescriptor(
+            provider = ProviderType.CUSTOM_AUX,
+            modelId = normalizedModelId,
+            displayName = displayName,
+            inputPricePer1M = 0.0,
+            outputPricePer1M = 0.0,
+            supportsEmbedding = true,
+        )
+    }
+
+    fun customAuxSpeechModel(
+        baseUrl: String = "",
+        modelId: String = "",
+    ): ModelDescriptor {
+        val normalizedModelId = modelId.trim()
+        val providerLabel = customProviderLabel(baseUrl)
+        val displayName = if (normalizedModelId.isBlank()) {
+            "$providerLabel - 未设置语音模型"
+        } else {
+            "$providerLabel - $normalizedModelId"
+        }
+        return ModelDescriptor(
+            provider = ProviderType.CUSTOM_AUX,
+            modelId = normalizedModelId,
+            displayName = displayName,
+            inputPricePer1M = 0.0,
+            outputPricePer1M = 0.0,
+            supportsTranscription = true,
+        )
+    }
+
     fun simplifiedCustomChatModels(baseUrl: String = ""): List<ModelDescriptor> {
         return simplifiedChatModels.map { (modelId, label) ->
             customChatModel(baseUrl = baseUrl, modelId = modelId).copy(

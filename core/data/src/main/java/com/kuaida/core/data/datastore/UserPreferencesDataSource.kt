@@ -33,6 +33,9 @@ class UserPreferencesDataSource @Inject constructor(
         val customBaseUrl = stringPreferencesKey("custom_base_url")
         val customChatModelId = stringPreferencesKey("custom_chat_model_id")
         val customEmbeddingModelId = stringPreferencesKey("custom_embedding_model_id")
+        val auxBaseUrl = stringPreferencesKey("aux_base_url")
+        val auxEmbeddingModelId = stringPreferencesKey("aux_embedding_model_id")
+        val auxSpeechModelId = stringPreferencesKey("aux_speech_model_id")
         val selectedStyle = stringPreferencesKey("selected_style")
         val tokenLimit = intPreferencesKey("token_limit")
         val highCostAlert = booleanPreferencesKey("high_cost_alert")
@@ -81,6 +84,14 @@ class UserPreferencesDataSource @Inject constructor(
         context.userPrefsDataStore.edit { it[Keys.highCostAlert] = enabled }
     }
 
+    suspend fun setAuxConfig(baseUrl: String, embeddingModelId: String, speechModelId: String) {
+        context.userPrefsDataStore.edit {
+            it[Keys.auxBaseUrl] = baseUrl.trim()
+            it[Keys.auxEmbeddingModelId] = embeddingModelId.trim()
+            it[Keys.auxSpeechModelId] = speechModelId.trim()
+        }
+    }
+
     private fun mapPreferences(preferences: Preferences): UserPreferences {
         val defaultChatModel = ModelCatalog.defaultModel()
         val defaultEmbeddingModel = ModelCatalog.defaultEmbeddingModel()
@@ -99,6 +110,9 @@ class UserPreferencesDataSource @Inject constructor(
             customBaseUrl = preferences[Keys.customBaseUrl] ?: SettingsDefaults.DEFAULT_CUSTOM_BASE_URL,
             customChatModelId = preferences[Keys.customChatModelId] ?: SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL,
             customEmbeddingModelId = preferences[Keys.customEmbeddingModelId] ?: SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL,
+            auxBaseUrl = preferences[Keys.auxBaseUrl] ?: SettingsDefaults.DEFAULT_AUX_BASE_URL,
+            auxEmbeddingModelId = preferences[Keys.auxEmbeddingModelId] ?: SettingsDefaults.DEFAULT_AUX_EMBEDDING_MODEL,
+            auxSpeechModelId = preferences[Keys.auxSpeechModelId] ?: SettingsDefaults.DEFAULT_AUX_SPEECH_MODEL,
             selectedStyle = preferences[Keys.selectedStyle]?.let(AnswerStylePreset::valueOf) ?: AnswerStylePreset.DETAILED,
             tokenLimit = preferences[Keys.tokenLimit] ?: SettingsDefaults.DEFAULT_TOKEN_LIMIT,
             highCostAlert = preferences[Keys.highCostAlert] ?: true,
@@ -116,6 +130,9 @@ data class UserPreferences(
     val customBaseUrl: String = SettingsDefaults.DEFAULT_CUSTOM_BASE_URL,
     val customChatModelId: String = SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL,
     val customEmbeddingModelId: String = SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL,
+    val auxBaseUrl: String = SettingsDefaults.DEFAULT_AUX_BASE_URL,
+    val auxEmbeddingModelId: String = SettingsDefaults.DEFAULT_AUX_EMBEDDING_MODEL,
+    val auxSpeechModelId: String = SettingsDefaults.DEFAULT_AUX_SPEECH_MODEL,
     val selectedStyle: AnswerStylePreset,
     val tokenLimit: Int,
     val highCostAlert: Boolean,

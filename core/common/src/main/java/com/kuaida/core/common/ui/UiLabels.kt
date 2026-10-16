@@ -12,6 +12,7 @@ fun ProviderType.displayLabel(): String {
         ProviderType.ZHIPU -> "智谱 AI"
         ProviderType.DEEPSEEK -> "DeepSeek"
         ProviderType.CUSTOM -> "自定义兼容接口"
+        ProviderType.CUSTOM_AUX -> "自定义向量接口"
     }
 }
 
