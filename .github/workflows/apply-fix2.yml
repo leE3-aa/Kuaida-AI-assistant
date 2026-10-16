@@ -1,0 +1,66 @@
+name: Apply model list fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore pristine upstream sources
+        run: |
+          set -e
+          U=https://raw.githubusercontent.com/nils0000shiyong/Kuaida-AI-assistant/main
+          curl -fsSL $U/core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt -o core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt
+          curl -fsSL $U/core/data/src/main/java/com/kuaida/core/data/repository/SettingsRepository.kt -o core/data/src/main/java/com/kuaida/core/data/repository/SettingsRepository.kt
+          curl -fsSL $U/feature/settings/src/main/java/com/kuaida/feature/settings/SettingsViewModel.kt -o feature/settings/src/main/java/com/kuaida/feature/settings/SettingsViewModel.kt
+          curl -fsSL $U/feature/settings/src/main/java/com/kuaida/feature/settings/SettingsScreen.kt -o feature/settings/src/main/java/com/kuaida/feature/settings/SettingsScreen.kt
+
+      - name: Apply patches
+        run: |
+          set -e
+          python3 tools/fix_a.py
+          python3 tools/fix_b.py
+          python3 tools/fix_c1.py
+          python3 tools/fix_c2.py
+          python3 tools/fix_d1.py
+          python3 tools/fix_d2.py
+          grep -c fetchModelsInternal core/data/src/main/java/com/kuaida/core/data/provider/OpenAiCompatibleProviders.kt
+
+      - name: Commit patched sources
+        run: |
+          git config user.name "openminis-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat: 支持从接口拉取可用模型列表 [skip ci]"
+          git push
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/kuaida-debug.apk
+          ls -lh out
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-${{ github.run_number }}
+          name: 快答 debug build models-${{ github.run_number }}
+          files: out/kuaida-debug.apk
+          body: 支持从接口自动拉取可用模型列表；模型名可直接输入。
