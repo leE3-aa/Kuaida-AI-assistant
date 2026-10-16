@@ -19,6 +19,20 @@ internal fun Throwable.findProviderServiceException(): ProviderServiceException?
     return null
 }
 
+private fun String.toServerDetailFragment(): String {
+    val collapsed = replace(Regex("\\s+"), " ").trim()
+    return if (collapsed.length > 300) collapsed.take(300) + "…" else collapsed
+}
+
+private fun serverDetailSuffix(statusCode: Int, body: String): String {
+    val fragment = body.toServerDetailFragment()
+    return if (fragment.isEmpty()) {
+        "（HTTP $statusCode：服务端未返回内容）"
+    } else {
+        "（HTTP $statusCode：$fragment）"
+    }
+}
+
 internal fun ProviderType.toProviderServiceException(statusCode: Int, body: String): ProviderServiceException {
     val normalized = body.lowercase()
     val label = displayLabel()
@@ -108,7 +122,7 @@ internal fun ProviderType.toProviderServiceException(statusCode: Int, body: Stri
             ProviderServiceException(
                 provider = this,
                 isCredentialError = false,
-                message = "$label 服务暂时不可用，请稍后重试。",
+                message = "$label 服务暂时不可用，请稍后重试。" + serverDetailSuffix(statusCode, body),
             )
         }
 
@@ -116,7 +130,7 @@ internal fun ProviderType.toProviderServiceException(statusCode: Int, body: Stri
             ProviderServiceException(
                 provider = this,
                 isCredentialError = false,
-                message = "$label 请求参数有误，请检查设置后重试。",
+                message = "$label 请求参数有误，请检查设置后重试。" + serverDetailSuffix(statusCode, body),
             )
         }
 
@@ -124,7 +138,7 @@ internal fun ProviderType.toProviderServiceException(statusCode: Int, body: Stri
             ProviderServiceException(
                 provider = this,
                 isCredentialError = false,
-                message = "$label 请求失败，请稍后重试。",
+                message = "$label 请求失败，请稍后重试。" + serverDetailSuffix(statusCode, body),
             )
         }
     }
