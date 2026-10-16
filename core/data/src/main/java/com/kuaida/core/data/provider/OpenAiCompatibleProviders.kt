@@ -58,6 +58,7 @@ abstract class OpenAiCompatibleProviderAdapter(
             ),
             temperature = 0.4,
             maxTokens = request.maxOutputTokens,
+            thinking = ThinkingOption(type = "disabled"),
         )
         val response = executeJsonRequest(
             baseUrl = baseUrl,
@@ -348,6 +349,12 @@ private data class ChatCompletionRequest(
     val messages: List<ChatMessage>,
     val temperature: Double,
     @SerialName("max_tokens") val maxTokens: Int? = null,
+    @SerialName("thinking") val thinking: ThinkingOption,
+)
+
+@Serializable
+private data class ThinkingOption(
+    val type: String,
 )
 
 @Serializable

@@ -19,6 +19,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.serialization.json.Json
@@ -43,6 +44,7 @@ object DataModule {
         }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
+            .readTimeout(20, TimeUnit.SECONDS)
             .build()
     }
 
