@@ -1,0 +1,39 @@
+name: Cleanup 4
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete non-final releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$REPO/releases?per_page=100" -o /tmp/rel.json
+          python3 -c "import json;keep={'fast-1','aux2-1'};[print(r['tag_name'],r['id']) for r in json.load(open('/tmp/rel.json')) if r['tag_name'] not in keep]" > /tmp/tags.txt
+          echo "--- 待删除 ---"
+          cat /tmp/tags.txt
+          while read -r tag rid; do
+            if [ -z "$tag" ]; then continue; fi
+            curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$REPO/releases/$rid"
+            echo "deleted release $tag"
+            git push origin --delete "$tag" || true
+          done < /tmp/tags.txt
+
+      - name: Remove self
+        run: |
+          git config user.name "openminis-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git rm -f .github/workflows/cleanup4.yml
+          git commit -m "chore: 清理完成，移除自身 workflow [skip ci]"
+          git push
