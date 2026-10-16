@@ -21,7 +21,25 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    val fixedKeystore = rootProject.file("release.keystore")
+
+    signingConfigs {
+        if (fixedKeystore.exists()) {
+            create("fixed") {
+                storeFile = fixedKeystore
+                storePassword = "kuaida2026"
+                keyAlias = "kuaida"
+                keyPassword = "kuaida2026"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (fixedKeystore.exists()) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
