@@ -1,0 +1,41 @@
+name: Cleanup 2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete obsolete releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          for tag in aux-1 build-18 build-19; do
+            rid=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/releases/tags/$tag" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+            if [ -n "$rid" ]; then
+              curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$REPO/releases/$rid"
+              echo "deleted release $tag"
+            fi
+            git push origin --delete "$tag" || true
+          done
+
+      - name: Remove one-off workflows
+        run: |
+          set -e
+          git config user.name "openminis-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git rm -f .github/workflows/apply-fix4.yml .github/workflows/init-signing.yml .github/workflows/cleanup2.yml
+          git commit -m "chore: 清理一次性工作流 [skip ci]"
+          git push
