@@ -134,6 +134,12 @@ class SettingsRepository @Inject constructor(
         return secureSecretStorage.decrypt(entity.encryptedKey, entity.iv)
     }
 
+    suspend fun fetchRemoteChatModels(): List<ModelDescriptor> {
+        val provider = providerRegistry.findChatProvider(ProviderType.CUSTOM) ?: return emptyList()
+        val apiKey = getApiKeyOrNull(ProviderType.CUSTOM) ?: return emptyList()
+        return provider.listModels(apiKey)
+    }
+
     suspend fun markApiKeyInvalid(provider: ProviderType) {
         providerCredentialDao.updateConfiguredStatus(
             provider = provider,

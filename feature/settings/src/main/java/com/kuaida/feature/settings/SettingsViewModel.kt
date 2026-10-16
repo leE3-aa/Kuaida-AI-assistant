@@ -32,12 +32,20 @@ class SettingsViewModel @Inject constructor(
     private val customEmbeddingModelDraft = MutableStateFlow(SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL)
     private val tokenLimitDraft = MutableStateFlow(SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString())
     private val message = MutableStateFlow<UiMessage?>(null)
+    private val remoteModelsState = MutableStateFlow(RemoteModelsState())
     private val customProviderDrafts = combine(
         customBaseUrlDraft,
         customChatModelDraft,
         customEmbeddingModelDraft,
-    ) { baseUrl, chatModelId, embeddingModelId ->
-        Triple(baseUrl, chatModelId, embeddingModelId)
+        remoteModelsState,
+    ) { baseUrl, chatModelId, embeddingModelId, remote ->
+        CustomDrafts(
+            baseUrl = baseUrl,
+            chatModelId = chatModelId,
+            embeddingModelId = embeddingModelId,
+            remoteModels = remote.models,
+            loadingModels = remote.loading,
+        )
     }
 
     init {
@@ -61,7 +69,6 @@ class SettingsViewModel @Inject constructor(
         tokenLimitDraft,
         message,
     ) { summary, keyDrafts, customDrafts, tokenDraft, uiMessage ->
-        val (customBaseUrl, customChatModelId, customEmbeddingModelId) = customDrafts
         SettingsUiState(
             availableProviders = availableProviders(),
             selectedModel = summary.selectedModel,
@@ -75,9 +82,11 @@ class SettingsViewModel @Inject constructor(
             speechToTextModels = ModelCatalog.speechToTextModels,
             providerKeys = keyDrafts,
             configuredProviders = summary.configuredProviders,
-            customBaseUrl = customBaseUrl,
-            customChatModelId = customChatModelId,
-            customEmbeddingModelId = customEmbeddingModelId,
+            customBaseUrl = customDrafts.baseUrl,
+            customChatModelId = customDrafts.chatModelId,
+            customEmbeddingModelId = customDrafts.embeddingModelId,
+            remoteChatModels = customDrafts.remoteModels,
+            loadingModels = customDrafts.loadingModels,
             totalTokens = summary.totalTokens,
             totalCostUsd = summary.totalCostUsd,
             highCostAlertEnabled = summary.highCostAlertEnabled,
@@ -99,6 +108,33 @@ class SettingsViewModel @Inject constructor(
 
     fun updateCustomEmbeddingModelDraft(value: String) {
         customEmbeddingModelDraft.value = value
+    }
+
+    fun refreshRemoteModels(silent: Boolean = false) {
+        if (remoteModelsState.value.loading) return
+        viewModelScope.launch {
+            remoteModelsState.update { it.copy(loading = true) }
+            val result = runCatching { repository.fetchRemoteChatModels() }
+            remoteModelsState.update { it.copy(loading = false) }
+            result.onSuccess { models ->
+                if (models.isEmpty()) {
+                    if (!silent) {
+                        message.value = UiMessage(message = "没取到模型列表，请确认 Base URL 和 API Key 是否正确。")
+                    }
+                } else {
+                    remoteModelsState.update { it.copy(models = models) }
+                    if (!silent) {
+                        message.value = UiMessage(message = "已获取 ${models.size} 个可用模型。")
+                    }
+                }
+            }.onFailure { throwable ->
+                if (!silent) {
+                    message.value = UiMessage(
+                        message = throwable.toUserMessage("获取模型列表失败，请检查 Base URL 和 API Key。"),
+                    )
+                }
+            }
+        }
     }
 
     fun saveApiKey(provider: ProviderType) {
@@ -145,6 +181,9 @@ class SettingsViewModel @Inject constructor(
                 repository.saveApiKey(provider, draft)
                 val masked = repository.maskedApiKeys()[provider].orEmpty()
                 drafts.update { it + (provider to masked) }
+                if (provider == ProviderType.CUSTOM && draft.isNotBlank()) {
+                    refreshRemoteModels(silent = true)
+                }
                 message.value = UiMessage(
                     message = if (draft.isBlank()) {
                         "已清空 ${provider.displayLabel()} 的 API Key。"
@@ -325,8 +364,23 @@ data class SettingsUiState(
     val customBaseUrl: String = SettingsDefaults.DEFAULT_CUSTOM_BASE_URL,
     val customChatModelId: String = SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL,
     val customEmbeddingModelId: String = SettingsDefaults.DEFAULT_CUSTOM_EMBEDDING_MODEL,
+    val remoteChatModels: List<ModelDescriptor> = emptyList(),
+    val loadingModels: Boolean = false,
     val totalTokens: Int = 0,
     val totalCostUsd: Double = 0.0,
     val highCostAlertEnabled: Boolean = true,
     val message: UiMessage? = null,
+)
+
+private data class RemoteModelsState(
+    val models: List<ModelDescriptor> = emptyList(),
+    val loading: Boolean = false,
+)
+
+private data class CustomDrafts(
+    val baseUrl: String,
+    val chatModelId: String,
+    val embeddingModelId: String,
+    val remoteModels: List<ModelDescriptor> = emptyList(),
+    val loadingModels: Boolean = false,
 )

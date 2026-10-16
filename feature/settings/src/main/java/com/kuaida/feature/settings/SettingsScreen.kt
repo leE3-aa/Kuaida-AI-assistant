@@ -83,6 +83,7 @@ object SettingsRoute {
             onClearKey = { viewModel.clearApiKey(ProviderType.CUSTOM) },
             onBaseUrlChange = viewModel::updateCustomBaseUrlDraft,
             onModelChange = viewModel::updateCustomChatModelDraft,
+            onRefreshModels = { viewModel.refreshRemoteModels() },
             onStyleChange = viewModel::updateStyle,
             onTokenLimitDraftChange = viewModel::updateTokenLimitDraft,
             onApplyTokenLimit = viewModel::applyTokenLimitDraft,
@@ -102,14 +103,19 @@ internal fun SettingsScreen(
     onClearKey: () -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
+    onRefreshModels: () -> Unit,
     onStyleChange: (AnswerStylePreset) -> Unit,
     onTokenLimitDraftChange: (String) -> Unit,
     onApplyTokenLimit: () -> Unit,
     onQuickTokenLimit: (Int) -> Unit,
 ) {
     val baseUrlLabel = ModelCatalog.customProviderLabel(state.customBaseUrl)
-    val modelOptions = ModelCatalog.simplifiedCustomChatModels(state.customBaseUrl)
-    val selectedModel = modelOptions.firstOrNull { it.modelId == state.customChatModelId } ?: modelOptions.first()
+    val builtInModelOptions = ModelCatalog.simplifiedCustomChatModels(state.customBaseUrl)
+    val modelOptions = if (state.remoteChatModels.isEmpty()) {
+        builtInModelOptions
+    } else {
+        (state.remoteChatModels + builtInModelOptions).distinctBy { it.modelId }
+    }
     val configured = state.configuredProviders[ProviderType.CUSTOM] == true
 
     QuickAnswerScaffold(
@@ -127,7 +133,7 @@ internal fun SettingsScreen(
             item {
                 SettingsCard(
                     title = "模型调用",
-                    description = "只保留最必要的连接项：Base URL、API Key 和 3 个模型选择。",
+                    description = "只保留最必要的连接项：Base URL、API Key 和模型选择。",
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -177,11 +183,14 @@ internal fun SettingsScreen(
 
                     ModelDropdown(
                         label = "模型",
-                        selectedModel = selectedModel,
+                        value = state.customChatModelId,
                         options = modelOptions,
+                        loading = state.loadingModels,
+                        onValueChange = onModelChange,
                         onSelect = { onModelChange(it.modelId) },
+                        onRefresh = onRefreshModels,
                     )
-                    HintLine("保留 3 个常用模型选项，减少切换成本；保存后下一次请求就会生效。")
+                    HintLine("可直接输入模型 ID，也可以拉取接口的全部可用模型。保存后下一次请求就会生效。")
                 }
             }
 
@@ -286,9 +295,12 @@ private fun HintLine(text: String) {
 @Composable
 private fun ModelDropdown(
     label: String,
-    selectedModel: ModelDescriptor,
+    value: String,
     options: List<ModelDescriptor>,
+    loading: Boolean,
+    onValueChange: (String) -> Unit,
     onSelect: (ModelDescriptor) -> Unit,
+    onRefresh: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -301,10 +313,11 @@ private fun ModelDropdown(
             OutlinedTextField(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                value = selectedModel.displayName,
-                onValueChange = {},
-                readOnly = true,
+                    .menuAnchor(MenuAnchorType.PrimaryEditable),
+                value = value,
+                onValueChange = onValueChange,
+                placeholder = { Text(SettingsDefaults.DEFAULT_CUSTOM_CHAT_MODEL) },
+                singleLine = true,
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
                 },
@@ -323,6 +336,13 @@ private fun ModelDropdown(
                     )
                 }
             }
+        }
+        OutlinedButton(
+            onClick = onRefresh,
+            enabled = !loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (loading) "正在获取模型列表…" else "获取接口可用模型")
         }
     }
 }
