@@ -155,6 +155,7 @@ class SettingsViewModel @Inject constructor(
                 }
                 val embeddingModel = auxEmbeddingModelDraft.value.trim()
                 val speechModel = auxSpeechModelDraft.value.trim()
+                repository.updateAuxConfig(baseUrl, embeddingModel, speechModel)
                 val draft = drafts.value[ProviderType.CUSTOM_AUX].orEmpty().trim()
                 if (draft.isNotBlank() && !draft.startsWith("••••")) {
                     val validation = repository.validateApiKey(ProviderType.CUSTOM_AUX, draft)
@@ -166,7 +167,6 @@ class SettingsViewModel @Inject constructor(
                     val masked = repository.maskedApiKeys()[ProviderType.CUSTOM_AUX].orEmpty()
                     drafts.update { it + (ProviderType.CUSTOM_AUX to masked) }
                 }
-                repository.updateAuxConfig(baseUrl, embeddingModel, speechModel)
                 repository.updateSelectedEmbeddingModel(ProviderType.CUSTOM_AUX, embeddingModel)
                 repository.updateSelectedSpeechToTextModel(ProviderType.CUSTOM_AUX, speechModel)
                 message.value = UiMessage(
