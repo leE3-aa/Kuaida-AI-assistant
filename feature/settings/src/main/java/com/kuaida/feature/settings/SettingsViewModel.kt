@@ -36,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     private val tokenLimitDraft = MutableStateFlow(SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString())
     private val message = MutableStateFlow<UiMessage?>(null)
     private val remoteModelsState = MutableStateFlow(RemoteModelsState())
+    private val auxModelsState = MutableStateFlow(AuxModelsState())
     private val customProviderDrafts = combine(
         customBaseUrlDraft,
         customChatModelDraft,
@@ -55,12 +56,15 @@ class SettingsViewModel @Inject constructor(
         auxEmbeddingModelDraft,
         auxSpeechModelDraft,
         tokenLimitDraft,
-    ) { baseUrl, embeddingModelId, speechModelId, tokenDraft ->
+        auxModelsState,
+    ) { baseUrl, embeddingModelId, speechModelId, tokenDraft, auxModels ->
         AuxDrafts(
             baseUrl = baseUrl,
             embeddingModelId = embeddingModelId,
             speechModelId = speechModelId,
             tokenLimitDraft = tokenDraft,
+            auxModels = auxModels.models,
+            loadingAuxModels = auxModels.loading,
         )
     }
 
@@ -108,6 +112,8 @@ class SettingsViewModel @Inject constructor(
             auxBaseUrl = auxDrafts.baseUrl,
             auxEmbeddingModelId = auxDrafts.embeddingModelId,
             auxSpeechModelId = auxDrafts.speechModelId,
+            auxModels = auxDrafts.auxModels,
+            loadingAuxModels = auxDrafts.loadingAuxModels,
             remoteChatModels = customDrafts.remoteModels,
             loadingModels = customDrafts.loadingModels,
             totalTokens = summary.totalTokens,
@@ -157,20 +163,29 @@ class SettingsViewModel @Inject constructor(
                 val speechModel = auxSpeechModelDraft.value.trim()
                 repository.updateAuxConfig(baseUrl, embeddingModel, speechModel)
                 val draft = drafts.value[ProviderType.CUSTOM_AUX].orEmpty().trim()
-                if (draft.isNotBlank() && !draft.startsWith("••••")) {
-                    val validation = repository.validateApiKey(ProviderType.CUSTOM_AUX, draft)
-                    if (!validation.success) {
-                        message.value = UiMessage(message = validation.message)
-                        return@launch
+                when {
+                    draft.isNotBlank() && !draft.startsWith("••••") -> {
+                        val validation = repository.validateApiKey(ProviderType.CUSTOM_AUX, draft)
+                        if (!validation.success) {
+                            message.value = UiMessage(message = validation.message)
+                            return@launch
+                        }
+                        repository.saveApiKey(ProviderType.CUSTOM_AUX, draft)
+                        drafts.update { it + (ProviderType.CUSTOM_AUX to "••••••••••••" + draft.takeLast(4)) }
                     }
-                    repository.saveApiKey(ProviderType.CUSTOM_AUX, draft)
-                    val masked = repository.maskedApiKeys()[ProviderType.CUSTOM_AUX].orEmpty()
-                    drafts.update { it + (ProviderType.CUSTOM_AUX to masked) }
+                    draft.isBlank() -> {
+                        val configured = repository.configuredProviders.first()[ProviderType.CUSTOM_AUX] == true
+                        if (!configured) {
+                            message.value = UiMessage(message = "接口配置已保存，但还没填 API Key，知识库和录音暂时仍然不可用。")
+                            return@launch
+                        }
+                    }
                 }
                 repository.updateSelectedEmbeddingModel(ProviderType.CUSTOM_AUX, embeddingModel)
                 repository.updateSelectedSpeechToTextModel(ProviderType.CUSTOM_AUX, speechModel)
+                val modelHint = if (embeddingModel.isBlank()) "（未填写向量模型）" else "向量模型 $embeddingModel"
                 message.value = UiMessage(
-                    message = "知识库与录音接口已保存，向量模型 $embeddingModel。",
+                    message = "知识库与录音接口已保存，$modelHint。",
                 )
             }.onFailure { throwable ->
                 message.value = UiMessage(message = throwable.toUserMessage("保存失败，请稍后重试。"))
@@ -187,7 +202,7 @@ class SettingsViewModel @Inject constructor(
             result.onSuccess { models ->
                 if (models.isEmpty()) {
                     if (!silent) {
-                        message.value = UiMessage(message = "没取到模型列表，请确认 Base URL 和 API Key 是否正确。")
+                        message.value = UiMessage(message = "没取到模型列表,请确认 Base URL 和 API Key 是否正确。")
                     }
                 } else {
                     remoteModelsState.update { it.copy(models = models) }
@@ -201,6 +216,25 @@ class SettingsViewModel @Inject constructor(
                         message = throwable.toUserMessage("获取模型列表失败，请检查 Base URL 和 API Key。"),
                     )
                 }
+            }
+        }
+    }
+
+    fun refreshAuxModels() {
+        if (auxModelsState.value.loading) return
+        viewModelScope.launch {
+            auxModelsState.update { it.copy(loading = true) }
+            val result = runCatching { repository.fetchAuxModels() }
+            auxModelsState.update { it.copy(loading = false) }
+            result.onSuccess { models ->
+                if (models.isEmpty()) {
+                    message.value = UiMessage(message = "没取到模型列表，请确认 Base URL 和 API Key 是否正确。")
+                } else {
+                    auxModelsState.update { it.copy(models = models) }
+                    message.value = UiMessage(message = "已获取 ${models.size} 个可用模型。")
+                }
+            }.onFailure { throwable ->
+                message.value = UiMessage(message = throwable.toUserMessage("获取模型列表失败，请检查 Base URL 和 API Key。"))
             }
         }
     }
@@ -435,6 +469,8 @@ data class SettingsUiState(
     val auxBaseUrl: String = SettingsDefaults.DEFAULT_AUX_BASE_URL,
     val auxEmbeddingModelId: String = SettingsDefaults.DEFAULT_AUX_EMBEDDING_MODEL,
     val auxSpeechModelId: String = SettingsDefaults.DEFAULT_AUX_SPEECH_MODEL,
+    val auxModels: List<ModelDescriptor> = emptyList(),
+    val loadingAuxModels: Boolean = false,
     val remoteChatModels: List<ModelDescriptor> = emptyList(),
     val loadingModels: Boolean = false,
     val totalTokens: Int = 0,
@@ -444,6 +480,11 @@ data class SettingsUiState(
 )
 
 private data class RemoteModelsState(
+    val models: List<ModelDescriptor> = emptyList(),
+    val loading: Boolean = false,
+)
+
+private data class AuxModelsState(
     val models: List<ModelDescriptor> = emptyList(),
     val loading: Boolean = false,
 )
@@ -461,4 +502,6 @@ private data class AuxDrafts(
     val embeddingModelId: String,
     val speechModelId: String,
     val tokenLimitDraft: String = SettingsDefaults.DEFAULT_TOKEN_LIMIT.toString(),
+    val auxModels: List<ModelDescriptor> = emptyList(),
+    val loadingAuxModels: Boolean = false,
 )

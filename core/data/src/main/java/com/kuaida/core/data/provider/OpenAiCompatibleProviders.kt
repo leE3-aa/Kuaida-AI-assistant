@@ -373,6 +373,8 @@ class CustomAuxProvider @Inject constructor(
         require(request.modelId.isNotBlank()) { "请先填写自定义向量接口的语音模型。" }
         return transcribeAudioInternal(apiKey, request)
     }
+
+    suspend fun listModels(apiKey: String): List<ModelDescriptor> = fetchModelsInternal(apiKey)
 }
 
 @Serializable

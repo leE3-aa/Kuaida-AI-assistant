@@ -142,6 +142,12 @@ class SettingsRepository @Inject constructor(
         return provider.listModels(apiKey)
     }
 
+    suspend fun fetchAuxModels(): List<ModelDescriptor> {
+        val provider = providerRegistry.findEmbeddingProvider(ProviderType.CUSTOM_AUX) as? com.kuaida.core.data.provider.CustomAuxProvider ?: return emptyList()
+        val apiKey = getApiKeyOrNull(ProviderType.CUSTOM_AUX) ?: return emptyList()
+        return provider.listModels(apiKey)
+    }
+
     suspend fun markApiKeyInvalid(provider: ProviderType) {
         providerCredentialDao.updateConfiguredStatus(
             provider = provider,

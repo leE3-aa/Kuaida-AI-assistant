@@ -95,6 +95,7 @@ object SettingsRoute {
             onAuxKeyChange = { viewModel.updateDraftKey(ProviderType.CUSTOM_AUX, it) },
             onClearAuxKey = { viewModel.clearApiKey(ProviderType.CUSTOM_AUX) },
             onSaveAuxConfig = viewModel::saveAuxConfig,
+            onRefreshAuxModels = { viewModel.refreshAuxModels() },
         )
     }
 }
@@ -121,6 +122,7 @@ internal fun SettingsScreen(
     onAuxKeyChange: (String) -> Unit = {},
     onClearAuxKey: () -> Unit = {},
     onSaveAuxConfig: () -> Unit = {},
+    onRefreshAuxModels: () -> Unit = {},
     onEmbeddingVendorChange: (ProviderType) -> Unit = {},
     onEmbeddingKeyChange: (String) -> Unit = {},
     onClearEmbeddingKey: () -> Unit = {},
@@ -131,12 +133,7 @@ internal fun SettingsScreen(
     onSaveSpeech: (ProviderType, String) -> Unit = { _, _ -> },
 ) {
     val baseUrlLabel = ModelCatalog.customProviderLabel(state.customBaseUrl)
-    val builtInModelOptions = ModelCatalog.simplifiedCustomChatModels(state.customBaseUrl)
-    val modelOptions = if (state.remoteChatModels.isEmpty()) {
-        builtInModelOptions
-    } else {
-        (state.remoteChatModels + builtInModelOptions).distinctBy { it.modelId }
-    }
+    val modelOptions = state.remoteChatModels
     val configured = state.configuredProviders[ProviderType.CUSTOM] == true
 
     QuickAnswerScaffold(
@@ -248,26 +245,38 @@ internal fun SettingsScreen(
 
                     HorizontalDivider()
 
-                    SectionLabel("向量模型")
-                    OutlinedTextField(
+                    OutlinedButton(
+                        onClick = onRefreshAuxModels,
+                        enabled = !state.loadingAuxModels,
                         modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (state.loadingAuxModels) "正在获取模型列表…" else "获取接口可用模型")
+                    }
+
+                    HorizontalDivider()
+
+                    ModelDropdown(
+                        label = "向量模型",
                         value = state.auxEmbeddingModelId,
+                        options = state.auxModels,
+                        loading = state.loadingAuxModels,
                         onValueChange = onAuxEmbeddingModelChange,
-                        label = { Text("向量模型 ID") },
-                        placeholder = { Text("BAAI/bge-m3") },
-                        singleLine = true,
+                        onSelect = { onAuxEmbeddingModelChange(it.modelId) },
+                        onRefresh = {},
+                        showRefresh = false,
                     )
 
                     HorizontalDivider()
 
-                    SectionLabel("语音模型")
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
+                    ModelDropdown(
+                        label = "语音模型",
                         value = state.auxSpeechModelId,
+                        options = state.auxModels,
+                        loading = state.loadingAuxModels,
                         onValueChange = onAuxSpeechModelChange,
-                        label = { Text("语音模型 ID") },
-                        placeholder = { Text("FunAudioLLM/SenseVoiceSmall") },
-                        singleLine = true,
+                        onSelect = { onAuxSpeechModelChange(it.modelId) },
+                        onRefresh = {},
+                        showRefresh = false,
                     )
 
                     HorizontalDivider()
@@ -389,6 +398,7 @@ private fun ModelDropdown(
     onValueChange: (String) -> Unit,
     onSelect: (ModelDescriptor) -> Unit,
     onRefresh: () -> Unit,
+    showRefresh: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -425,12 +435,14 @@ private fun ModelDropdown(
                 }
             }
         }
-        OutlinedButton(
-            onClick = onRefresh,
-            enabled = !loading,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (loading) "正在获取模型列表…" else "获取接口可用模型")
+        if (showRefresh) {
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (loading) "正在获取模型列表…" else "获取接口可用模型")
+            }
         }
     }
 }
